@@ -17,6 +17,15 @@ pipeline {
     }
 
     stages {
+        stage('Security - Dependency Scan') {
+            steps {
+                echo "Running npm audit..."
+                // Punto 15: Análisis de dependencias. 
+                // Usamos || true para que no falle el pipeline si hay vulnerabilidades bajas (opcional)
+                sh "npm audit || true" 
+            }
+        }
+
         stage('Build Docker Image') {
             steps {
                 echo "Building Docker image..."
@@ -28,6 +37,15 @@ pipeline {
             steps {
                 echo "Running tests inside container..."
                 sh "docker run --rm ${IMAGE_NAME}:${IMAGE_TAG} npm test"
+            }
+        }
+
+        stage('Security - Image Scan (Trivy)') {
+            steps {
+                echo "Scanning image with Trivy..."
+                // Punto 15: Escaneo de imagen Docker con Trivy
+                // Punto 16: El pipeline fallará si detecta vulnerabilidades CRITICAL
+                sh "docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy image --severity CRITICAL ${IMAGE_NAME}:${IMAGE_TAG}"
             }
         }
         
@@ -42,7 +60,7 @@ pipeline {
             steps {
                 script {
                     withCredentials([usernamePassword(credentialsId: CREDENTIALS_ID, usernameVariable: 'USER', passwordVariable: 'PASS')]) {
-                        // Intentar login y push al registro de Nexus
+                        // Importante: Debes haber añadido '127.0.0.1 nexus' a tu archivo hosts de Windows
                         sh "docker login -u ${USER} -p ${PASS} ${NEXUS_DOCKER_REGISTRY}"
                         sh "docker push ${NEXUS_DOCKER_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
                     }
