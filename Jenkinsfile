@@ -2,72 +2,58 @@ pipeline {
     agent any
 
     options {
-        timeout(time: 2, unit: 'MINUTES') // Tiempo máximo para la ejecución del pipeline
+        timeout(time: 5, unit: 'MINUTES')
     }
 
     environment {
-        NEXUS_URL = "http://localhost:8083"
-        CREDENTIALS_ID = "f0142294-69d8-4e13-9215-33104e705eb6"
-        IMAGE_NAME = "sumador" // Nombre de la imagen Docker
-        IMAGE_TAG = "${env.BUILD_NUMBER}" // Etiqueta de la imagen basada en el número de build
-        NEXUS_HOST = "localhost:8083" // Host y puerto de Nexus
-        NEXUS_REPO = "repository/myrepo" // Ruta del repositorio en Nexus
-        ARTIFACT_ID = "elbuo8/webapp:${env.BUILD_NUMBER}"
+        // Usamos el nombre del servicio 'nexus' definido en docker-compose
+        NEXUS_URL = "http://nexus:8081" 
+        NEXUS_DOCKER_REGISTRY = "nexus:8083"
+        CREDENTIALS_ID = "nexus-credentials"
+        IMAGE_NAME = "sumador"
+        IMAGE_TAG = "${env.BUILD_NUMBER}"
     }
 
     stages {
         stage('Build Docker Image') {
             steps {
                 echo "Building Docker image..."
-                sh """
-                docker build -t ${IMAGE_NAME}:${IMAGE_TAG} .
-                """
+                sh "docker build -t ${IMAGE_NAME}:${IMAGE_TAG} ."
             }
         }
 
         stage('Run tests') {
-          steps {
-            sh "docker run ${IMAGE_NAME}:${IMAGE_TAG} npm test"
-          }
+            steps {
+                echo "Running tests inside container..."
+                sh "docker run --rm ${IMAGE_NAME}:${IMAGE_TAG} npm test"
+            }
         }
         
         stage('Tag Docker Image') {
             steps {
-                echo "Tagging Docker image for Nexus repository..."
-                sh """
-                docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${NEXUS_HOST}/${NEXUS_REPO}/${IMAGE_NAME}:${IMAGE_TAG}
-                """
+                echo "Tagging Docker image for Nexus..."
+                sh "docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${NEXUS_DOCKER_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
             }
         }
 
         stage('Deploy Image') {
-          steps {
-            withCredentials([usernamePassword(credentialsId: CREDENTIALS_ID, usernameVariable: 'NEXUS_USERNAME', passwordVariable: 'NEXUS_PASSWORD')]) {
+            steps {
                 script {
-                  docker.withRegistry("${NEXUS_URL}", "${CREDENTIALS_ID}") {
-                    def imageName = "${IMAGE_NAME}:${IMAGE_TAG}"
-                    def dockerImage = docker.build(imageName, '.')
-                    dockerImage.push()
-                  }
+                    withCredentials([usernamePassword(credentialsId: CREDENTIALS_ID, usernameVariable: 'USER', passwordVariable: 'PASS')]) {
+                        // Intentar login y push al registro de Nexus
+                        sh "docker login -u ${USER} -p ${PASS} ${NEXUS_DOCKER_REGISTRY}"
+                        sh "docker push ${NEXUS_DOCKER_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
+                    }
                 }
             }
-          }
         }
     }
 
     post {
         always {
-            echo "Cleaning up local Docker images..."
-            sh """
-            docker rmi ${IMAGE_NAME}:${IMAGE_TAG} || true
-            docker rmi ${NEXUS_HOST}/${NEXUS_REPO}/${IMAGE_NAME}:${IMAGE_TAG} || true
-            """
-        }
-        success {
-            echo "Pipeline completed successfully!"
-        }
-        failure {
-            echo "Pipeline failed. Check the logs for details."
+            echo "Cleaning up..."
+            sh "docker rmi ${IMAGE_NAME}:${IMAGE_TAG} || true"
+            sh "docker rmi ${NEXUS_DOCKER_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG} || true"
         }
     }
 }
