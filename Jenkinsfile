@@ -12,6 +12,8 @@ pipeline {
         CREDENTIALS_ID = "nexus-credentials"
         IMAGE_NAME = "sumador"
         IMAGE_TAG = "${env.BUILD_NUMBER}"
+        // Forzar versión de API para compatibilidad con host nuevo
+        DOCKER_API_VERSION = "1.44"
     }
 
     stages {
