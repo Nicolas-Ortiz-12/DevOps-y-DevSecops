@@ -20,8 +20,6 @@ pipeline {
         stage('Security - Dependency Scan') {
             steps {
                 echo "Running npm audit..."
-                // Punto 15: Análisis de dependencias. 
-                // Usamos || true para que no falle el pipeline si hay vulnerabilidades bajas (opcional)
                 sh "npm audit || true" 
             }
         }
@@ -43,8 +41,6 @@ pipeline {
         stage('Security - Image Scan (Trivy)') {
             steps {
                 echo "Scanning image with Trivy..."
-                // Punto 15: Escaneo de imagen Docker con Trivy
-                // Punto 16: El pipeline fallará si detecta vulnerabilidades CRITICAL
                 sh "docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy image --severity CRITICAL ${IMAGE_NAME}:${IMAGE_TAG}"
             }
         }
