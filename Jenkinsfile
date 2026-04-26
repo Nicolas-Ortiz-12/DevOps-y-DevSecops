@@ -15,17 +15,17 @@ pipeline {
     }
 
     stages {
-        stage('Security - Dependency Scan') {
-            steps {
-                echo "Running npm audit..."
-                sh "docker run --rm ${IMAGE_NAME}:${IMAGE_TAG} npm audit --audit-level=critical"
-            }
-        }
-
         stage('Build Docker Image') {   
             steps {
                 echo "Building Docker image..."
                 sh "docker build -t ${IMAGE_NAME}:${IMAGE_TAG} ."
+            }
+        }
+
+        stage('Security - Dependency Scan') {
+            steps {
+                echo "Running npm audit..."
+                sh "docker run --rm ${IMAGE_NAME}:${IMAGE_TAG} npm audit --audit-level=critical"
             }
         }
 
