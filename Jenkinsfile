@@ -2,17 +2,15 @@ pipeline {
     agent any
 
     options {
-        timeout(time: 5, unit: 'MINUTES')
+        timeout(time: 10, unit: 'MINUTES')
     }
 
     environment {
-        // Usamos el nombre del servicio 'nexus' definido en docker-compose
         NEXUS_URL = "http://nexus:8081" 
         NEXUS_DOCKER_REGISTRY = "nexus:8083"
         CREDENTIALS_ID = "nexus-credentials"
         IMAGE_NAME = "sumador"
         IMAGE_TAG = "${env.BUILD_NUMBER}"
-        // Forzar versión de API para compatibilidad con host nuevo
         DOCKER_API_VERSION = "1.44"
     }
 
@@ -20,13 +18,11 @@ pipeline {
         stage('Security - Dependency Scan') {
             steps {
                 echo "Running npm audit..."
-                // Punto 15: Análisis de dependencias. 
-                // Usamos || true para que no falle el pipeline si hay vulnerabilidades bajas (opcional)
-                sh "npm audit || true" 
+                sh "docker run --rm ${IMAGE_NAME}:${IMAGE_TAG} npm audit --audit-level=critical"
             }
         }
 
-        stage('Build Docker Image') {
+        stage('Build Docker Image') {   
             steps {
                 echo "Building Docker image..."
                 sh "docker build -t ${IMAGE_NAME}:${IMAGE_TAG} ."
@@ -43,9 +39,13 @@ pipeline {
         stage('Security - Image Scan (Trivy)') {
             steps {
                 echo "Scanning image with Trivy..."
-                // Punto 15: Escaneo de imagen Docker con Trivy
-                // Punto 16: El pipeline fallará si detecta vulnerabilidades CRITICAL
-                sh "docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy image --severity CRITICAL ${IMAGE_NAME}:${IMAGE_TAG}"
+                sh """
+                    docker run --rm \
+                    -v /var/run/docker.sock:/var/run/docker.sock \
+                    aquasec/trivy image \
+                    --severity CRITICAL \
+                    --exit-code 1 \
+                    ${IMAGE_NAME}:${IMAGE_TAG}                """
             }
         }
         
@@ -58,12 +58,16 @@ pipeline {
 
         stage('Deploy Image') {
             steps {
-                script {
-                    withCredentials([usernamePassword(credentialsId: CREDENTIALS_ID, usernameVariable: 'USER', passwordVariable: 'PASS')]) {
-                        // Importante: Debes haber añadido '127.0.0.1 nexus' a tu archivo hosts de Windows
-                        sh "docker login -u ${USER} -p ${PASS} ${NEXUS_DOCKER_REGISTRY}"
-                        sh "docker push ${NEXUS_DOCKER_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
-                    }
+                withCredentials([usernamePassword(
+                    credentialsId: CREDENTIALS_ID, 
+                    usernameVariable: 'NEXUS_USER', 
+                    passwordVariable: 'NEXUS_PASS'
+                )]) {
+                    sh """
+                        echo \${NEXUS_PASS} | docker login ${NEXUS_DOCKER_REGISTRY} -u \${NEXUS_USER} --password-stdin
+                        docker push ${NEXUS_DOCKER_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}
+                        docker logout ${NEXUS_DOCKER_REGISTRY}
+                    """
                 }
             }
         }
@@ -71,9 +75,17 @@ pipeline {
 
     post {
         always {
-            echo "Cleaning up..."
-            sh "docker rmi ${IMAGE_NAME}:${IMAGE_TAG} || true"
-            sh "docker rmi ${NEXUS_DOCKER_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG} || true"
+            echo "Cleaning up local Docker images..."
+            sh """
+                docker rmi ${IMAGE_NAME}:${IMAGE_TAG} || true
+                docker rmi ${NEXUS_DOCKER_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG} || true
+            """
+        }
+        success {
+            echo "Pipeline completed successfully! Image is in Nexus."
+        }
+        failure {
+            echo "Pipeline failed. Check the logs (possibly a Trivy vulnerability found)."
         }
     }
 }
